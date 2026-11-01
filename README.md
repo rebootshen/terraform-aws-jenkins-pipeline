@@ -1,101 +1,83 @@
-# aws-jenkins
+# terraform-aws-jenkins-pipeline
 
-Demo to show Infrastructure as Code, Pipeline as Code
-## main branch: 
-Setup 1 VPC with 2 public Subnets, with Internet Gateway, Route Table, Security Group
+Terraform and a Jenkins pipeline that deploy a highly available static site on AWS.
 
-Setup Application Load Balancer, AutoScaling Group, 2 ubuntu instances in 2 Available Zones, with static website deployed
-```
-Folders:
+## Tech stack
 
-network/
-compute/
-script/
-main.tf
+- Terraform  (AWS provider 5.9, region `us-east-1`)
+- Jenkins declarative pipeline (`Jenkinsfile`)
+- Docker image with Jenkins, Docker, and Terraform (`local-jenkins/`)
+- Ubuntu 20.04, Apache, Application Load Balancer, Auto Scaling
+
+## Architecture
+
+Terraform builds one VPC (`10.0.0.0/16`) with two public subnets in `us-east-1a` and `us-east-1b`, an internet gateway, a public route table, and a security group. An Application Load Balancer target group fronts an Auto Scaling group that keeps two Ubuntu instances (minimum 2, maximum 2). Instance user data installs Apache and serves a one-page site that shows the hostname.
+
+Jenkins runs the same Terraform code as a pipeline: init, plan, manual approval, apply, or destroy. AWS keys stay in the Jenkins credential store. They are not committed.
+
+`local-jenkins/` builds a local Jenkins controller so the pipeline can be tried without a shared CI server. The `static` branch holds the sample `index.html`.
+
+## Layout
+
+```text
+network/          VPC, subnets, routing, load balancer, security group
+compute/          launch template and Auto Scaling group
+script/           instance user data
+static/           sample static page
+local-jenkins/    local Jenkins image and Terraform
+main.tf           wires the network and compute modules
+providers.tf      AWS provider
+backend.tf        S3 remote state
 outputs.tf
-providers.tf
-backend.tf
+Jenkinsfile       init, plan, approve, apply, destroy
+env.local.example variable names for local AWS credentials
+```
 
-Jenkinsfile
+## Run
 
-=========================
-Commands: 
+### AWS from the workstation
 
+1. Copy `env.local.example` to `env.local` and export it, or use `~/.aws/credentials`.
+2. Create the S3 bucket named in `backend.tf` (see `TF_STATE_BUCKET` in `env.local`) before `terraform init`.
+3. From this directory:
+
+```bash
 terraform fmt
+terraform init
 terraform plan
-terraform apply -auto-approve
+terraform apply
 terraform destroy
 ```
 
-## local-jenkins folder
-Setup jenkins at local
+### Local Jenkins
 
-
-```
-local-jenkins/
-    Dockerfile
-    main.tf
-
-========================
+```bash
 cd local-jenkins
 docker build -t jenkins:terraform .
-docker image ls
-
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
+```
 
-docker container ls
-docker volume ls
+Open `http://localhost:8080`. The initial admin password is printed by:
+
+```bash
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
-
-http://localhost:8080/login?from=%2F
-Install plugins:
-Terraform
-AWS Credentials
-ansiColor
-Locale
-    systemLocale: en
-    ignoreAcceptLanguage: true
-
-Ensure that you have the following plugins installed on Jenkins.
-
-    Stage Step Pipeline
-    SCM Step Pipeline
-    Multibranch Pipeline
-    Input Step Pipeline
-    Declarative Pipeline
-    Basic Steps Pipeline
-    Build Step Pipeline
-    Terraform Plugin
-    Workspace Cleanup
-    Plain Credentials
-    Credentials Binding
-    Build Timeout
-    AnsiColor
-
-
-
-docker stop jenkins
-docker start jenkins
-
-Setup Terraform
-http://localhost:8080/manage/configureTools/
-    Add Terraform
-
-http://localhost:8080/manage/credentials/
-cat ~/.aws/credentials
-
-docker exec -it jenkins bash
 ```
 
-## static branch
+Install the pipeline, credentials, Terraform, and AnsiColor plugins. Add a Terraform installation under Manage Jenkins, and store `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` as Jenkins credentials. The pipeline parameters are `environment`, `autoApprove`, and `destroy`.
 
-Example of static website. Only one page to show hostname
+## What this demonstrates
 
-Created branch static with index.html to similate a separate static website
+- Infrastructure as code split into network and compute modules
+- A multi-AZ load-balanced web tier
+- Pipeline as code, with a manual approval gate before apply
+- Remote state in S3, and a repeatable local Jenkins image
 
-```
-static/
-    index.html
-```
+## Secrets
+
+Real AWS keys are not in this repository. Put them in `env.local` (gitignored) or in Jenkins credentials. `local-jenkins/tfplan` is a local plan file and is gitignored.
+
+## License
+
+No license file is included yet.
